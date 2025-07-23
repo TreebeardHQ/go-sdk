@@ -34,7 +34,7 @@ type LogRequest struct {
 	ReleaseType string     `json:"release_type,omitempty"`
 }
 
-type LogsExporter struct {
+type DefaultLogsExporter struct {
 	config      *Config
 	client      *http.Client
 	batch       []LogEntry
@@ -44,8 +44,8 @@ type LogsExporter struct {
 	flushTicker *time.Ticker
 }
 
-func NewLogsExporter(config *Config) *LogsExporter {
-	exporter := &LogsExporter{
+func NewLogsExporter(config *Config) *DefaultLogsExporter {
+	exporter := &DefaultLogsExporter{
 		config: config,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
@@ -61,7 +61,7 @@ func NewLogsExporter(config *Config) *LogsExporter {
 	return exporter
 }
 
-func (e *LogsExporter) Export(entry LogEntry) {
+func (e *DefaultLogsExporter) Export(entry LogEntry) {
 	e.batchMu.Lock()
 	e.batch = append(e.batch, entry)
 	shouldFlush := len(e.batch) >= e.config.BatchSize
@@ -72,7 +72,7 @@ func (e *LogsExporter) Export(entry LogEntry) {
 	}
 }
 
-func (e *LogsExporter) runFlusher() {
+func (e *DefaultLogsExporter) runFlusher() {
 	defer e.wg.Done()
 	
 	for {
@@ -85,7 +85,7 @@ func (e *LogsExporter) runFlusher() {
 	}
 }
 
-func (e *LogsExporter) flush() {
+func (e *DefaultLogsExporter) flush() {
 	e.batchMu.Lock()
 	if len(e.batch) == 0 {
 		e.batchMu.Unlock()
@@ -100,7 +100,7 @@ func (e *LogsExporter) flush() {
 	e.sendBatch(entries)
 }
 
-func (e *LogsExporter) sendBatch(entries []LogEntry) {
+func (e *DefaultLogsExporter) sendBatch(entries []LogEntry) {
 	request := LogRequest{
 		Logs:        entries,
 		ProjectName: e.config.ProjectName,
@@ -126,7 +126,7 @@ func (e *LogsExporter) sendBatch(entries []LogEntry) {
 	e.sendWithRetry(data)
 }
 
-func (e *LogsExporter) sendWithRetry(data []byte) {
+func (e *DefaultLogsExporter) sendWithRetry(data []byte) {
 	url := fmt.Sprintf("%s/logs/batch", e.config.BaseURL)
 	retries := 0
 	backoff := e.config.RetryBackoff
@@ -189,10 +189,16 @@ func (e *LogsExporter) sendWithRetry(data []byte) {
 	}
 }
 
-func (e *LogsExporter) Shutdown(ctx context.Context) error {
-	close(e.stopCh)
-	e.flushTicker.Stop()
+func (e *DefaultLogsExporter) Shutdown(ctx context.Context) error {
+	select {
+	case <-e.stopCh:
+		// Already shutdown
+		return nil
+	default:
+		close(e.stopCh)
+	}
 	
+	e.flushTicker.Stop()
 	e.flush()
 	
 	done := make(chan struct{})
@@ -210,13 +216,13 @@ func (e *LogsExporter) Shutdown(ctx context.Context) error {
 }
 
 type LumberjackHandler struct {
-	exporter    *LogsExporter
+	exporter    LogsExporter
 	attrs       []slog.Attr
 	groups      []string
 	projectName string
 }
 
-func NewLumberjackHandler(exporter *LogsExporter, projectName string) *LumberjackHandler {
+func NewLumberjackHandler(exporter LogsExporter, projectName string) *LumberjackHandler {
 	return &LumberjackHandler{
 		exporter:    exporter,
 		projectName: projectName,

@@ -23,15 +23,18 @@ var (
 )
 
 type SDK struct {
-	config          *Config
-	logger          *Logger
-	tracer          trace.Tracer
-	meter           metric.Meter
-	spanExporter    *SpanExporter
-	logsExporter    *LogsExporter
-	metricsExporter *MetricsExporter
-	tracerProvider  *sdktrace.TracerProvider
-	meterProvider   *sdkmetric.MeterProvider
+	config               *Config
+	logger               *Logger
+	tracer               trace.Tracer
+	meter                metric.Meter
+	spanExporter         sdktrace.SpanExporter
+	logsExporter         LogsExporter
+	metricsExporter      sdkmetric.Exporter
+	tracerProvider       *sdktrace.TracerProvider
+	meterProvider        *sdkmetric.MeterProvider
+	defaultSpanExporter  *SpanExporter
+	defaultLogsExporter  *DefaultLogsExporter
+	defaultMetricsExporter *MetricsExporter
 }
 
 func Init(config *Config) *SDK {
@@ -61,9 +64,32 @@ func newSDK(config *Config) *SDK {
 		fmt.Println("Warning: Lumberjack SDK initialized without API key. Logs will only go to stdout.")
 	}
 	
-	logsExporter := NewLogsExporter(config)
-	spanExporter := NewSpanExporter(config)
-	metricsExporter := NewMetricsExporter(config)
+	var logsExporter LogsExporter
+	var defaultLogsExporter *DefaultLogsExporter
+	if config.CustomLogsExporter != nil {
+		logsExporter = config.CustomLogsExporter
+	} else {
+		defaultLogsExporter = NewLogsExporter(config)
+		logsExporter = defaultLogsExporter
+	}
+	
+	var spanExporter sdktrace.SpanExporter
+	var defaultSpanExporter *SpanExporter
+	if config.CustomSpanExporter != nil {
+		spanExporter = config.CustomSpanExporter
+	} else {
+		defaultSpanExporter = NewSpanExporter(config)
+		spanExporter = defaultSpanExporter
+	}
+	
+	var metricsExporter sdkmetric.Exporter
+	var defaultMetricsExporter *MetricsExporter
+	if config.CustomMetricsExporter != nil {
+		metricsExporter = config.CustomMetricsExporter
+	} else {
+		defaultMetricsExporter = NewMetricsExporter(config)
+		metricsExporter = defaultMetricsExporter
+	}
 	
 	res, err := resource.New(context.Background(),
 		resource.WithAttributes(
@@ -94,15 +120,18 @@ func newSDK(config *Config) *SDK {
 	logger := NewLogger(handler)
 	
 	sdk := &SDK{
-		config:          config,
-		logger:          logger,
-		tracer:          tracerProvider.Tracer("lumberjack"),
-		meter:           meterProvider.Meter("lumberjack"),
-		spanExporter:    spanExporter,
-		logsExporter:    logsExporter,
-		metricsExporter: metricsExporter,
-		tracerProvider:  tracerProvider,
-		meterProvider:   meterProvider,
+		config:                 config,
+		logger:                 logger,
+		tracer:                 tracerProvider.Tracer("lumberjack"),
+		meter:                  meterProvider.Meter("lumberjack"),
+		spanExporter:           spanExporter,
+		logsExporter:           logsExporter,
+		metricsExporter:        metricsExporter,
+		tracerProvider:         tracerProvider,
+		meterProvider:          meterProvider,
+		defaultSpanExporter:    defaultSpanExporter,
+		defaultLogsExporter:    defaultLogsExporter,
+		defaultMetricsExporter: defaultMetricsExporter,
 	}
 	
 	if config.Debug {
@@ -131,16 +160,23 @@ func (s *SDK) StartSpan(ctx context.Context, name string, opts ...trace.SpanStar
 func (s *SDK) Shutdown(ctx context.Context) error {
 	var errs []error
 	
-	if err := s.logsExporter.Shutdown(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("failed to shutdown logs exporter: %w", err))
+	// Only shutdown default exporters if they were created
+	if s.defaultLogsExporter != nil {
+		if err := s.defaultLogsExporter.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("failed to shutdown logs exporter: %w", err))
+		}
 	}
 	
-	if err := s.spanExporter.Shutdown(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("failed to shutdown spans exporter: %w", err))
+	if s.defaultSpanExporter != nil {
+		if err := s.defaultSpanExporter.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("failed to shutdown spans exporter: %w", err))
+		}
 	}
 	
-	if err := s.metricsExporter.Shutdown(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("failed to shutdown metrics exporter: %w", err))
+	if s.defaultMetricsExporter != nil {
+		if err := s.defaultMetricsExporter.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("failed to shutdown metrics exporter: %w", err))
+		}
 	}
 	
 	if err := s.tracerProvider.Shutdown(ctx); err != nil {
