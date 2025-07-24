@@ -390,9 +390,15 @@ func (e *MetricsExporter) ForceFlush(ctx context.Context) error {
 }
 
 func (e *MetricsExporter) Shutdown(ctx context.Context) error {
-	close(e.stopCh)
-	e.flushTicker.Stop()
+	select {
+	case <-e.stopCh:
+		// Already shutdown
+		return nil
+	default:
+		close(e.stopCh)
+	}
 	
+	e.flushTicker.Stop()
 	e.flush()
 	
 	done := make(chan struct{})
