@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/lumberjack-dev/go-sdk"
+	lumberjack "github.com/TreebeardHQ/go-sdk"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 )

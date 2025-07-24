@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	lumberjack "github.com/lumberjack-dev/go-sdk"
+	lumberjack "github.com/TreebeardHQ/go-sdk"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"

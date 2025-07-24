@@ -1,4 +1,4 @@
-module github.com/lumberjack-dev/go-sdk
+module github.com/TreebeardHQ/go-sdk
 
 go 1.23.2
 

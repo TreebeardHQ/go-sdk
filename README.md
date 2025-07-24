@@ -13,7 +13,7 @@ A Go SDK for Lumberjack observability platform built on OpenTelemetry with slog-
 ## Installation
 
 ```bash
-go get github.com/lumberjack-dev/go-sdk
+go get github.com/TreebeardHQ/go-sdk
 ```
 
 ## Quick Start
@@ -24,8 +24,8 @@ package main
 import (
     "context"
     "log/slog"
-    
-    "github.com/lumberjack-dev/go-sdk"
+
+    "github.com/TreebeardHQ/go-sdk"
 )
 
 func main() {
@@ -34,22 +34,22 @@ func main() {
         WithAPIKey("your-api-key").
         WithProjectName("my-project").
         WithDebug(true)
-    
+
     sdk := lumberjack.Init(config)
     defer sdk.Shutdown(context.Background())
-    
+
     ctx := context.Background()
-    
+
     // Basic logging (slog compatible)
     lumberjack.Info("Application starting", "version", "1.0.0")
-    
+
     // Start a span
     ctx, span := lumberjack.StartSpan(ctx, "example-operation")
     defer span.End()
-    
+
     // Log with context (includes trace information)
     lumberjack.InfoContext(ctx, "Processing request", "user_id", 123)
-    
+
     // Structured logging with attributes
     lumberjack.LogAttrs(ctx, slog.LevelInfo, "Custom log",
         slog.String("operation", "user_lookup"),
@@ -166,6 +166,7 @@ histogram.Record(ctx, 0.5) // 500ms
 ### Migration Steps
 
 **Before (v1):**
+
 ```go
 lumberjack.Init(core.Config{
     ProjectName: "my-project",
@@ -176,6 +177,7 @@ lumberjack.Info("Hello", map[string]interface{}{"key": "value"})
 ```
 
 **After (v2):**
+
 ```go
 config := lumberjack.NewConfig().
     WithProjectName("my-project").
@@ -208,19 +210,19 @@ lumberjack.Info("Hello", "key", "value")
 func handler(w http.ResponseWriter, r *http.Request) {
     ctx, span := lumberjack.StartSpan(r.Context(), "http-request")
     defer span.End()
-    
+
     span.SetAttributes(
         attribute.String("http.method", r.Method),
         attribute.String("http.path", r.URL.Path),
     )
-    
+
     lumberjack.InfoContext(ctx, "Handling request",
         "method", r.Method,
         "path", r.URL.Path,
     )
-    
+
     // ... handle request
-    
+
     span.SetStatus(codes.Ok, "Request completed")
     w.WriteHeader(http.StatusOK)
 }
