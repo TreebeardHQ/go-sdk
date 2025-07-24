@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 	
@@ -116,7 +117,26 @@ func newSDK(config *Config) *SDK {
 	)
 	otel.SetMeterProvider(meterProvider)
 	
-	handler := NewLumberjackHandler(logsExporter, config.ProjectName)
+	var handler *LumberjackHandler
+	if config.ReplaceSlog {
+		// Store the current global slog handler before replacing it
+		currentDefault := slog.Default()
+		config.PreviousSlogHandler = currentDefault.Handler()
+		
+		// Create handler with chaining to previous handler
+		handler = NewLumberjackHandlerWithChain(logsExporter, config.ProjectName, config.PreviousSlogHandler)
+		
+		// Replace the global slog handler
+		newLogger := slog.New(handler)
+		slog.SetDefault(newLogger)
+		
+		if config.Debug {
+			fmt.Println("Lumberjack SDK: Replaced global slog handler")
+		}
+	} else {
+		handler = NewLumberjackHandler(logsExporter, config.ProjectName)
+	}
+	
 	logger := NewLogger(handler)
 	
 	sdk := &SDK{
@@ -157,8 +177,85 @@ func (s *SDK) StartSpan(ctx context.Context, name string, opts ...trace.SpanStar
 	return s.tracer.Start(ctx, name, opts...)
 }
 
+// ContextWithTraceparent creates a context with trace context from W3C traceparent header.
+// The traceparent format is: version-traceid-spanid-flags
+// Example: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+func (s *SDK) ContextWithTraceparent(ctx context.Context, traceparent string) (context.Context, error) {
+	spanCtx, err := parseTraceparent(traceparent)
+	if err != nil {
+		return ctx, fmt.Errorf("invalid traceparent: %w", err)
+	}
+	
+	// Create context with remote span context
+	return trace.ContextWithRemoteSpanContext(ctx, spanCtx), nil
+}
+
+// parseTraceparent parses a W3C traceparent header into a SpanContext
+func parseTraceparent(traceparent string) (trace.SpanContext, error) {
+	parts := strings.Split(traceparent, "-")
+	if len(parts) != 4 {
+		return trace.SpanContext{}, fmt.Errorf("traceparent must have 4 parts separated by '-', got %d", len(parts))
+	}
+	
+	// Validate version (must be "00")
+	if parts[0] != "00" {
+		return trace.SpanContext{}, fmt.Errorf("unsupported traceparent version: %s", parts[0])
+	}
+	
+	// Parse trace ID (32 hex characters)
+	if len(parts[1]) != 32 {
+		return trace.SpanContext{}, fmt.Errorf("trace ID must be 32 hex characters, got %d", len(parts[1]))
+	}
+	traceID, err := trace.TraceIDFromHex(parts[1])
+	if err != nil {
+		return trace.SpanContext{}, fmt.Errorf("invalid trace ID: %w", err)
+	}
+	
+	// Parse span ID (16 hex characters)
+	if len(parts[2]) != 16 {
+		return trace.SpanContext{}, fmt.Errorf("span ID must be 16 hex characters, got %d", len(parts[2]))
+	}
+	spanID, err := trace.SpanIDFromHex(parts[2])
+	if err != nil {
+		return trace.SpanContext{}, fmt.Errorf("invalid span ID: %w", err)
+	}
+	
+	// Parse trace flags (2 hex characters)
+	if len(parts[3]) != 2 {
+		return trace.SpanContext{}, fmt.Errorf("trace flags must be 2 hex characters, got %d", len(parts[3]))
+	}
+	var traceFlags trace.TraceFlags
+	if parts[3] == "01" {
+		traceFlags = trace.FlagsSampled
+	}
+	
+	// Build span context
+	spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: traceFlags,
+		Remote:     true,
+	})
+	
+	if !spanCtx.IsValid() {
+		return trace.SpanContext{}, fmt.Errorf("created span context is invalid")
+	}
+	
+	return spanCtx, nil
+}
+
 func (s *SDK) Shutdown(ctx context.Context) error {
 	var errs []error
+	
+	// Restore previous slog handler if we replaced it
+	if s.config.ReplaceSlog && s.config.PreviousSlogHandler != nil {
+		restoredLogger := slog.New(s.config.PreviousSlogHandler)
+		slog.SetDefault(restoredLogger)
+		
+		if s.config.Debug {
+			fmt.Println("Lumberjack SDK: Restored previous slog handler")
+		}
+	}
 	
 	// Only shutdown default exporters if they were created
 	if s.defaultLogsExporter != nil {
@@ -263,4 +360,10 @@ func Shutdown(ctx context.Context) error {
 		return globalSDK.Shutdown(ctx)
 	}
 	return nil
+}
+
+// ContextWithTraceparent creates a context with trace context from W3C traceparent header.
+// This is a package-level convenience function.
+func ContextWithTraceparent(ctx context.Context, traceparent string) (context.Context, error) {
+	return Get().ContextWithTraceparent(ctx, traceparent)
 }

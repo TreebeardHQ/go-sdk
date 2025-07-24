@@ -216,16 +216,25 @@ func (e *DefaultLogsExporter) Shutdown(ctx context.Context) error {
 }
 
 type LumberjackHandler struct {
-	exporter    LogsExporter
-	attrs       []slog.Attr
-	groups      []string
-	projectName string
+	exporter       LogsExporter
+	attrs          []slog.Attr
+	groups         []string
+	projectName    string
+	previousHandler slog.Handler // For chaining to previous handler
 }
 
 func NewLumberjackHandler(exporter LogsExporter, projectName string) *LumberjackHandler {
 	return &LumberjackHandler{
 		exporter:    exporter,
 		projectName: projectName,
+	}
+}
+
+func NewLumberjackHandlerWithChain(exporter LogsExporter, projectName string, previousHandler slog.Handler) *LumberjackHandler {
+	return &LumberjackHandler{
+		exporter:        exporter,
+		projectName:     projectName,
+		previousHandler: previousHandler,
 	}
 }
 
@@ -272,22 +281,31 @@ func (h *LumberjackHandler) Handle(ctx context.Context, r slog.Record) error {
 	
 	h.exporter.Export(entry)
 	
+	// Forward to previous handler if it exists
+	if h.previousHandler != nil {
+		return h.previousHandler.Handle(ctx, r)
+	}
+	
 	return nil
 }
 
 func (h *LumberjackHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &LumberjackHandler{
-		exporter: h.exporter,
-		attrs:    append(h.attrs, attrs...),
-		groups:   h.groups,
+		exporter:        h.exporter,
+		attrs:           append(h.attrs, attrs...),
+		groups:          h.groups,
+		projectName:     h.projectName,
+		previousHandler: h.previousHandler,
 	}
 }
 
 func (h *LumberjackHandler) WithGroup(name string) slog.Handler {
 	return &LumberjackHandler{
-		exporter: h.exporter,
-		attrs:    h.attrs,
-		groups:   append(h.groups, name),
+		exporter:        h.exporter,
+		attrs:           h.attrs,
+		groups:          append(h.groups, name),
+		projectName:     h.projectName,
+		previousHandler: h.previousHandler,
 	}
 }
 

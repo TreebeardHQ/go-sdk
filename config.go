@@ -2,10 +2,11 @@ package lumberjack
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
-	
+
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
@@ -27,6 +28,10 @@ type Config struct {
 	MaxRetries    int
 	RetryBackoff  time.Duration
 	
+	// slog integration
+	ReplaceSlog         bool
+	PreviousSlogHandler slog.Handler
+	
 	// Custom exporters - if provided, these will be used instead of the default ones
 	CustomSpanExporter    sdktrace.SpanExporter
 	CustomMetricsExporter sdkmetric.Exporter
@@ -46,15 +51,21 @@ func NewConfig() *Config {
 		}
 	}
 	
+	replaceSlog := true
+	if replaceSlogStr := os.Getenv("LUMBERJACK_REPLACE_SLOG"); replaceSlogStr != "" {
+		replaceSlog, _ = strconv.ParseBool(replaceSlogStr)
+	}
+
 	return &Config{
 		APIKey:       os.Getenv("LUMBERJACK_API_KEY"),
-		BaseURL:      getEnvOrDefault("LUMBERJACK_BASE_URL", "https://api.lumberjackhq.com"),
+		BaseURL:      getEnvOrDefault("LUMBERJACK_BASE_URL", "https://api.trylumberjack.com"),
 		Debug:        debug,
 		ProjectName:  os.Getenv("LUMBERJACK_PROJECT_NAME"),
 		BatchSize:    batchSize,
 		BatchTimeout: 5 * time.Second,
 		MaxRetries:   3,
 		RetryBackoff: 250 * time.Millisecond,
+		ReplaceSlog:  replaceSlog,
 	}
 }
 
@@ -90,6 +101,11 @@ func (c *Config) WithCustomMetricsExporter(exporter sdkmetric.Exporter) *Config 
 
 func (c *Config) WithCustomLogsExporter(exporter LogsExporter) *Config {
 	c.CustomLogsExporter = exporter
+	return c
+}
+
+func (c *Config) WithReplaceSlog(replace bool) *Config {
+	c.ReplaceSlog = replace
 	return c
 }
 
