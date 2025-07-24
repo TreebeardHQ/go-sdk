@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/lumberjack-dev/go-sdk"
+	lumberjack "github.com/TreebeardHQ/go-sdk"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 )
@@ -22,7 +22,7 @@ func (e *CustomConsoleLogsExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func main() {
+func mainExampleCustomExporters() {
 	// Create custom OTEL exporters
 	traceExporter, err := stdouttrace.New(stdouttrace.WithPrettyPrint())
 	if err != nil {
