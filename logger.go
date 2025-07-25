@@ -2,12 +2,9 @@ package lumberjack
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"runtime"
 	"time"
-
-	"go.opentelemetry.io/otel/trace"
 )
 
 type Logger struct {
@@ -113,18 +110,7 @@ func (l *Logger) LogAttrs(ctx context.Context, level slog.Level, msg string, att
 	for _, attr := range l.attrs {
 		r.AddAttrs(attr)
 	}
-	
-	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
-		r.AddAttrs(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
 		
-		if span.SpanContext().IsSampled() {
-			r.AddAttrs(slog.Bool("sampled", true))
-		}
-	}
-	
 	r.AddAttrs(attrs...)
 	
 	_ = l.handler.Handle(ctx, r)
@@ -138,19 +124,3 @@ func (l *Logger) Handler() slog.Handler {
 	return l.handler
 }
 
-type leveler struct {
-	level slog.Level
-}
-
-func (l leveler) Level() slog.Level {
-	return l.level
-}
-
-func parseSlogLevel(s string) (slog.Level, error) {
-	var level slog.Level
-	var err = level.UnmarshalText([]byte(s))
-	if err != nil {
-		return level, fmt.Errorf("unrecognized level: %q", s)
-	}
-	return level, nil
-}

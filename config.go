@@ -7,13 +7,14 @@ import (
 	"strconv"
 	"time"
 
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // LogsExporter defines the interface for custom logs exporters
 type LogsExporter interface {
-	Export(entry LogEntry)
+	Export(ctx context.Context, records []*sdklog.Record) error
 	Shutdown(ctx context.Context) error
 }
 

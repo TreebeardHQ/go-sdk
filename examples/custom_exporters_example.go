@@ -8,13 +8,17 @@ import (
 	lumberjack "github.com/TreebeardHQ/go-sdk"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
 // CustomConsoleLogsExporter implements the LogsExporter interface
 type CustomConsoleLogsExporter struct{}
 
-func (e *CustomConsoleLogsExporter) Export(entry lumberjack.LogEntry) {
-	log.Printf("[CUSTOM LOG] %s: %s", entry.Lvl, entry.Msg)
+func (e *CustomConsoleLogsExporter) Export(ctx context.Context, records []*sdklog.Record) error {
+	for _, record := range records {
+		log.Printf("[CUSTOM LOG] %s: %s", record.SeverityText(), record.Body().String())
+	}
+	return nil
 }
 
 func (e *CustomConsoleLogsExporter) Shutdown(ctx context.Context) error {

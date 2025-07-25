@@ -9,11 +9,12 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"runtime"
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/otel/log"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
 type LogEntry struct {
@@ -63,14 +64,96 @@ func NewLogsExporter(config *Config) *DefaultLogsExporter {
 	return exporter
 }
 
-func (e *DefaultLogsExporter) Export(entry LogEntry) {
+func (e *DefaultLogsExporter) Export(ctx context.Context, records []*sdklog.Record) error {
+	// Convert Record to LogEntry
+	entries := make([]LogEntry, 0, len(records))
+	for _, record := range records {
+		entry := e.convertRecordToEntry(record)
+		entries = append(entries, entry)
+	}
+
 	e.batchMu.Lock()
-	e.batch = append(e.batch, entry)
+	e.batch = append(e.batch, entries...)
 	shouldFlush := len(e.batch) >= e.config.BatchSize
 	e.batchMu.Unlock()
 
 	if shouldFlush {
 		e.flush()
+	}
+
+	return nil
+}
+
+func (e *DefaultLogsExporter) convertRecordToEntry(record *sdklog.Record) LogEntry {
+	entry := LogEntry{
+		Msg: record.Body().String(),
+		Lvl: severityToString(record.Severity()),
+		Ts:  float64(record.Timestamp().UnixNano()) / 1e9,
+		Src: "lumberjack-go",
+	}
+
+	// Extract trace context if available
+	if record.TraceID().IsValid() {
+		entry.Tid = record.TraceID().String()
+	}
+
+	// Convert attributes to props
+	props := make(map[string]interface{})
+	record.WalkAttributes(func(kv log.KeyValue) bool {
+		props[string(kv.Key)] = kv.Value.AsString()
+		return true
+	})
+
+	if len(props) > 0 {
+		entry.Props = props
+	}
+
+	// Try to extract file and line info from attributes
+	if file, ok := props["file"].(string); ok {
+		entry.Fl = file
+		delete(props, "file")
+	}
+	if line, ok := props["line"]; ok {
+		if lineInt, err := convertToInt(line); err == nil {
+			entry.Ln = lineInt
+			delete(props, "line")
+		}
+	}
+
+	return entry
+}
+
+func severityToString(sev log.Severity) string {
+	switch {
+	case sev >= log.SeverityFatal:
+		return "FATAL"
+	case sev >= log.SeverityError:
+		return "ERROR"
+	case sev >= log.SeverityWarn:
+		return "WARN"
+	case sev >= log.SeverityInfo:
+		return "INFO"
+	case sev >= log.SeverityDebug:
+		return "DEBUG"
+	default:
+		return "TRACE"
+	}
+}
+
+func convertToInt(v interface{}) (int, error) {
+	switch val := v.(type) {
+	case int:
+		return val, nil
+	case int64:
+		return int(val), nil
+	case float64:
+		return int(val), nil
+	case string:
+		var i int
+		_, err := fmt.Sscanf(val, "%d", &i)
+		return i, err
+	default:
+		return 0, fmt.Errorf("cannot convert %T to int", v)
 	}
 }
 
@@ -217,124 +300,84 @@ func (e *DefaultLogsExporter) Shutdown(ctx context.Context) error {
 	}
 }
 
-type LumberjackHandler struct {
-	exporter        LogsExporter
-	attrs           []slog.Attr
-	groups          []string
-	projectName     string
-	previousHandler slog.Handler // For chaining to previous handler
+// LumberjackLogProcessor is an OpenTelemetry log processor that exports to our LogsExporter
+type LumberjackLogProcessor struct {
+	exporter LogsExporter
 }
 
-func NewLumberjackHandler(exporter LogsExporter, projectName string) *LumberjackHandler {
-	return &LumberjackHandler{
-		exporter:    exporter,
-		projectName: projectName,
+func NewLumberjackLogProcessor(exporter LogsExporter) *LumberjackLogProcessor {
+	return &LumberjackLogProcessor{
+		exporter: exporter,
 	}
 }
 
-func NewLumberjackHandlerWithChain(exporter LogsExporter, projectName string, previousHandler slog.Handler) *LumberjackHandler {
-	return &LumberjackHandler{
-		exporter:        exporter,
-		projectName:     projectName,
-		previousHandler: previousHandler,
-	}
+func (p *LumberjackLogProcessor) OnEmit(ctx context.Context, record *sdklog.Record) error {
+	return p.exporter.Export(ctx, []*sdklog.Record{record})
 }
 
-func (h *LumberjackHandler) Enabled(_ context.Context, level slog.Level) bool {
-	return true
+func (p *LumberjackLogProcessor) Shutdown(ctx context.Context) error {
+	return p.exporter.Shutdown(ctx)
 }
 
-func (h *LumberjackHandler) Handle(ctx context.Context, r slog.Record) error {
-	entry := LogEntry{
-		Msg: r.Message,
-		Lvl: levelToString(r.Level),
-		Ts:  float64(r.Time.UnixNano()) / 1e9,
-		Src: "lumberjack-go",
-	}
-
-	if r.PC != 0 {
-		fs := runtime.CallersFrames([]uintptr{r.PC})
-		f, _ := fs.Next()
-		if f.File != "" {
-			entry.Fl = f.File
-			entry.Ln = f.Line
-		}
-	}
-
-	props := make(map[string]interface{})
-
-	for _, attr := range h.attrs {
-		props[attr.Key] = attr.Value.Any()
-	}
-
-	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
-		r.AddAttrs(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-
-		if span.SpanContext().IsSampled() {
-			r.AddAttrs(slog.Bool("sampled", true))
-		}
-	}
-
-	r.Attrs(func(a slog.Attr) bool {
-		switch a.Key {
-		case "trace_id":
-			entry.Tid = a.Value.String()
-		case "span_id", "sampled":
-		default:
-			props[a.Key] = a.Value.Any()
-		}
-		return true
-	})
-
-	if len(props) > 0 {
-		entry.Props = props
-	}
-
-	h.exporter.Export(entry)
-
-	if h.previousHandler != nil {
-
-		return h.previousHandler.Handle(ctx, r)
-
-	}
-
+func (p *LumberjackLogProcessor) ForceFlush(ctx context.Context) error {
+	// If the exporter supports force flush, call it here
 	return nil
 }
 
-func (h *LumberjackHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &LumberjackHandler{
-		exporter:        h.exporter,
-		attrs:           append(h.attrs, attrs...),
-		groups:          h.groups,
-		projectName:     h.projectName,
-		previousHandler: h.previousHandler,
+// CreateLumberjackSlogHandler creates a slog handler that uses OpenTelemetry logging
+func CreateLumberjackSlogHandler(loggerProvider *sdklog.LoggerProvider, previousHandler slog.Handler) slog.Handler {
+	// Create an OpenTelemetry slog bridge handler
+	otelHandler := otelslog.NewHandler("lumberjack-go", otelslog.WithLoggerProvider(loggerProvider))
+	
+	// If there's a previous handler, we need to chain them
+	if previousHandler != nil {
+		return &chainedHandler{
+			primary:  otelHandler,
+			secondary: previousHandler,
+		}
+	}
+	
+	return otelHandler
+}
+
+type chainedHandler struct {
+	primary   slog.Handler
+	secondary slog.Handler
+}
+
+func (h *chainedHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.primary.Enabled(ctx, level) || h.secondary.Enabled(ctx, level)
+}
+
+func (h *chainedHandler) Handle(ctx context.Context, record slog.Record) error {
+	var primaryErr error
+	if h.primary.Enabled(ctx, record.Level) {
+		primaryErr = h.primary.Handle(ctx, record)
+	}
+	
+	var secondaryErr error
+	if h.secondary != nil && h.secondary.Enabled(ctx, record.Level) {
+		secondaryErr = h.secondary.Handle(ctx, record)
+	}
+	
+	// Return primary error if any, otherwise secondary
+	if primaryErr != nil {
+		return primaryErr
+	}
+	return secondaryErr
+}
+
+func (h *chainedHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &chainedHandler{
+		primary:   h.primary.WithAttrs(attrs),
+		secondary: h.secondary.WithAttrs(attrs),
 	}
 }
 
-func (h *LumberjackHandler) WithGroup(name string) slog.Handler {
-	return &LumberjackHandler{
-		exporter:        h.exporter,
-		attrs:           h.attrs,
-		groups:          append(h.groups, name),
-		projectName:     h.projectName,
-		previousHandler: h.previousHandler,
+func (h *chainedHandler) WithGroup(name string) slog.Handler {
+	return &chainedHandler{
+		primary:   h.primary.WithGroup(name),
+		secondary: h.secondary.WithGroup(name),
 	}
 }
 
-func levelToString(level slog.Level) string {
-	switch {
-	case level < slog.LevelInfo:
-		return "debug"
-	case level < slog.LevelWarn:
-		return "info"
-	case level < slog.LevelError:
-		return "warn"
-	case level >= slog.LevelError:
-		return "error"
-	default:
-		return "info"
-	}
-}

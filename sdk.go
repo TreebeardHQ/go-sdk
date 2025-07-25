@@ -12,6 +12,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -34,6 +35,7 @@ type SDK struct {
 	metricsExporter      sdkmetric.Exporter
 	tracerProvider       *sdktrace.TracerProvider
 	meterProvider        *sdkmetric.MeterProvider
+	loggerProvider       *sdklog.LoggerProvider
 	defaultSpanExporter  *SpanExporter
 	defaultLogsExporter  *DefaultLogsExporter
 	defaultMetricsExporter *MetricsExporter
@@ -118,23 +120,29 @@ func newSDK(config *Config) *SDK {
 	)
 	otel.SetMeterProvider(meterProvider)
 	
+	// Create OpenTelemetry log provider with our exporter
+	logProcessor := NewLumberjackLogProcessor(logsExporter)
+	loggerProvider := sdklog.NewLoggerProvider(
+		sdklog.WithResource(res),
+		sdklog.WithProcessor(logProcessor),
+	)
+
 	base := baselineHandler() // <-- CLEAN handler, never Lumberjack
 
-	var handler *LumberjackHandler
+	var handler slog.Handler
 	if config.ReplaceSlog {
-		// Only wrap once
-		if _, already := slog.Default().Handler().(*LumberjackHandler); !already {
-			handler = NewLumberjackHandlerWithChain(logsExporter, config.ProjectName, base)
-			slog.SetDefault(slog.New(handler))
+		// Create the OpenTelemetry slog bridge handler
+		handler = CreateLumberjackSlogHandler(loggerProvider, base)
+		slog.SetDefault(slog.New(handler))
 
-			if config.CaptureStdLog {
-				// std logger -> baseline (so it never re-enters Lumberjack)
-				log.SetFlags(0)
-				log.SetOutput(slog.NewLogLogger(base, slog.LevelInfo).Writer())
-			}
+		if config.CaptureStdLog {
+			// std logger -> baseline (so it never re-enters Lumberjack)
+			log.SetFlags(0)
+			log.SetOutput(slog.NewLogLogger(base, slog.LevelInfo).Writer())
 		}
 	} else {
-		handler = NewLumberjackHandlerWithChain(logsExporter, config.ProjectName, base)
+		// Create handler but don't set as default
+		handler = CreateLumberjackSlogHandler(loggerProvider, base)
 	}
 		
 	logger := NewLogger(handler)
@@ -149,6 +157,7 @@ func newSDK(config *Config) *SDK {
 		metricsExporter:        metricsExporter,
 		tracerProvider:         tracerProvider,
 		meterProvider:          meterProvider,
+		loggerProvider:         loggerProvider,
 		defaultSpanExporter:    defaultSpanExporter,
 		defaultLogsExporter:    defaultLogsExporter,
 		defaultMetricsExporter: defaultMetricsExporter,
@@ -282,6 +291,12 @@ func (s *SDK) Shutdown(ctx context.Context) error {
 	
 	if err := s.meterProvider.Shutdown(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("failed to shutdown meter provider: %w", err))
+	}
+	
+	if s.loggerProvider != nil {
+		if err := s.loggerProvider.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("failed to shutdown logger provider: %w", err))
+		}
 	}
 	
 	if len(errs) > 0 {

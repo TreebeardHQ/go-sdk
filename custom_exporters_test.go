@@ -9,14 +9,18 @@ import (
 
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
 // ConsoleLogsExporter is a simple console exporter for logs that implements LogsExporter interface
 type ConsoleLogsExporter struct{}
 
-func (e *ConsoleLogsExporter) Export(entry LogEntry) {
-	// Use fmt.Fprintf to stderr to avoid any logging loops
-	fmt.Fprintf(os.Stderr, "CONSOLE LOG: %s %s\n", entry.Lvl, entry.Msg)
+func (e *ConsoleLogsExporter) Export(ctx context.Context, records []*sdklog.Record) error {
+	for _, record := range records {
+		// Use fmt.Fprintf to stderr to avoid any logging loops
+		fmt.Fprintf(os.Stderr, "CONSOLE LOG: %s %s\n", record.SeverityText(), record.Body().String())
+	}
+	return nil
 }
 
 func (e *ConsoleLogsExporter) Shutdown(ctx context.Context) error {
