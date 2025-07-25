@@ -215,6 +215,8 @@ func (e *DefaultLogsExporter) Shutdown(ctx context.Context) error {
 	}
 }
 
+
+
 type LumberjackHandler struct {
 	exporter       LogsExporter
 	attrs          []slog.Attr
@@ -266,10 +268,11 @@ func (h *LumberjackHandler) Handle(ctx context.Context, r slog.Record) error {
 	}
 	
 	r.Attrs(func(a slog.Attr) bool {
-		if a.Key == "trace_id" {
+		switch a.Key {
+		case "trace_id":
 			entry.Tid = a.Value.String()
-		} else if a.Key == "span_id" || a.Key == "sampled" {
-		} else {
+		case "span_id", "sampled":
+		default:
 			props[a.Key] = a.Value.Any()
 		}
 		return true
@@ -281,9 +284,11 @@ func (h *LumberjackHandler) Handle(ctx context.Context, r slog.Record) error {
 	
 	h.exporter.Export(entry)
 	
-	// Forward to previous handler if it exists
+
 	if h.previousHandler != nil {
+
 		return h.previousHandler.Handle(ctx, r)
+
 	}
 	
 	return nil

@@ -2,9 +2,11 @@ package lumberjack
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
 	"time"
-	
+
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 )
@@ -13,8 +15,8 @@ import (
 type ConsoleLogsExporter struct{}
 
 func (e *ConsoleLogsExporter) Export(entry LogEntry) {
-	// In a real implementation, you might format this better
-	println("CONSOLE LOG:", entry.Lvl, entry.Msg)
+	// Use fmt.Fprintf to stderr to avoid any logging loops
+	fmt.Fprintf(os.Stderr, "CONSOLE LOG: %s %s\n", entry.Lvl, entry.Msg)
 }
 
 func (e *ConsoleLogsExporter) Shutdown(ctx context.Context) error {
@@ -78,7 +80,8 @@ func TestCustomLogsExporter(t *testing.T) {
 	
 	config := NewConfig().
 		WithProjectName("test-project").
-		WithCustomLogsExporter(logsExporter)
+		WithCustomLogsExporter(logsExporter).
+		WithCaptureStdLog(true)
 		
 	sdk := newSDK(config)
 	defer sdk.Shutdown(context.Background())
@@ -87,6 +90,8 @@ func TestCustomLogsExporter(t *testing.T) {
 	logger := sdk.Logger()
 	logger.Info("Test log message", "key", "value")
 }
+
+
 
 func TestAllCustomExporters(t *testing.T) {
 	// Create all custom exporters
@@ -106,7 +111,8 @@ func TestAllCustomExporters(t *testing.T) {
 		WithProjectName("test-project").
 		WithCustomSpanExporter(traceExporter).
 		WithCustomMetricsExporter(metricExporter).
-		WithCustomLogsExporter(logsExporter)
+		WithCustomLogsExporter(logsExporter).
+		WithReplaceSlog(false)
 		
 	sdk := newSDK(config)
 	defer sdk.Shutdown(context.Background())

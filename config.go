@@ -31,11 +31,14 @@ type Config struct {
 	// slog integration
 	ReplaceSlog         bool
 	PreviousSlogHandler slog.Handler
+	CaptureStdLog       bool // NEW – redirect log.Printf etc. to slog
 	
 	// Custom exporters - if provided, these will be used instead of the default ones
 	CustomSpanExporter    sdktrace.SpanExporter
 	CustomMetricsExporter sdkmetric.Exporter
 	CustomLogsExporter    LogsExporter
+
+	
 }
 
 func NewConfig() *Config {
@@ -106,6 +109,11 @@ func (c *Config) WithCustomLogsExporter(exporter LogsExporter) *Config {
 
 func (c *Config) WithReplaceSlog(replace bool) *Config {
 	c.ReplaceSlog = replace
+	return c
+}
+
+func (c *Config) WithCaptureStdLog(capture bool) *Config {
+	c.CaptureStdLog = capture
 	return c
 }
 

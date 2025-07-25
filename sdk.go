@@ -3,12 +3,13 @@ package lumberjack
 import (
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"strings"
 	"sync"
 	"time"
-	
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -117,26 +118,25 @@ func newSDK(config *Config) *SDK {
 	)
 	otel.SetMeterProvider(meterProvider)
 	
+	base := baselineHandler() // <-- CLEAN handler, never Lumberjack
+
 	var handler *LumberjackHandler
 	if config.ReplaceSlog {
-		// Store the current global slog handler before replacing it
-		currentDefault := slog.Default()
-		config.PreviousSlogHandler = currentDefault.Handler()
-		
-		// Create handler with chaining to previous handler
-		handler = NewLumberjackHandlerWithChain(logsExporter, config.ProjectName, config.PreviousSlogHandler)
-		
-		// Replace the global slog handler
-		newLogger := slog.New(handler)
-		slog.SetDefault(newLogger)
-		
-		if config.Debug {
-			fmt.Println("Lumberjack SDK: Replaced global slog handler")
+		// Only wrap once
+		if _, already := slog.Default().Handler().(*LumberjackHandler); !already {
+			handler = NewLumberjackHandlerWithChain(logsExporter, config.ProjectName, base)
+			slog.SetDefault(slog.New(handler))
+
+			if config.CaptureStdLog {
+				// std logger -> baseline (so it never re-enters Lumberjack)
+				log.SetFlags(0)
+				log.SetOutput(slog.NewLogLogger(base, slog.LevelInfo).Writer())
+			}
 		}
 	} else {
-		handler = NewLumberjackHandler(logsExporter, config.ProjectName)
+		handler = NewLumberjackHandlerWithChain(logsExporter, config.ProjectName, base)
 	}
-	
+		
 	logger := NewLogger(handler)
 	
 	sdk := &SDK{
@@ -360,6 +360,11 @@ func Shutdown(ctx context.Context) error {
 		return globalSDK.Shutdown(ctx)
 	}
 	return nil
+}
+
+func baselineHandler() slog.Handler {
+	// Anything that writes straight to a file (no slog.Default()) is OK.
+	return slog.NewTextHandler(os.Stderr, nil)
 }
 
 // ContextWithTraceparent creates a context with trace context from W3C traceparent header.
