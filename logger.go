@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"runtime"
 	"time"
-	
+
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -87,17 +87,6 @@ func (l *Logger) log(ctx context.Context, level slog.Level, msg string, args ...
 	
 	for _, attr := range l.attrs {
 		r.AddAttrs(attr)
-	}
-	
-	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
-		r.AddAttrs(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
-		
-		if span.SpanContext().IsSampled() {
-			r.AddAttrs(slog.Bool("sampled", true))
-		}
 	}
 	
 	for i := 0; i < len(args); i += 2 {

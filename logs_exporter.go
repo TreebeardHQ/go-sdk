@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 type LogEntry struct {
@@ -53,11 +55,11 @@ func NewLogsExporter(config *Config) *DefaultLogsExporter {
 		batch:  make([]LogEntry, 0, config.BatchSize),
 		stopCh: make(chan struct{}),
 	}
-	
+
 	exporter.flushTicker = time.NewTicker(config.BatchTimeout)
 	exporter.wg.Add(1)
 	go exporter.runFlusher()
-	
+
 	return exporter
 }
 
@@ -66,7 +68,7 @@ func (e *DefaultLogsExporter) Export(entry LogEntry) {
 	e.batch = append(e.batch, entry)
 	shouldFlush := len(e.batch) >= e.config.BatchSize
 	e.batchMu.Unlock()
-	
+
 	if shouldFlush {
 		e.flush()
 	}
@@ -74,7 +76,7 @@ func (e *DefaultLogsExporter) Export(entry LogEntry) {
 
 func (e *DefaultLogsExporter) runFlusher() {
 	defer e.wg.Done()
-	
+
 	for {
 		select {
 		case <-e.flushTicker.C:
@@ -91,12 +93,12 @@ func (e *DefaultLogsExporter) flush() {
 		e.batchMu.Unlock()
 		return
 	}
-	
+
 	entries := make([]LogEntry, len(e.batch))
 	copy(entries, e.batch)
 	e.batch = e.batch[:0]
 	e.batchMu.Unlock()
-	
+
 	e.sendBatch(entries)
 }
 
@@ -106,15 +108,15 @@ func (e *DefaultLogsExporter) sendBatch(entries []LogEntry) {
 		ProjectName: e.config.ProjectName,
 		SdkVersion:  2,
 	}
-	
+
 	if releaseId := os.Getenv("LUMBERJACK_RELEASE_ID"); releaseId != "" {
 		request.ReleaseId = releaseId
 	}
-	
+
 	if releaseType := os.Getenv("LUMBERJACK_RELEASE_TYPE"); releaseType != "" {
 		request.ReleaseType = releaseType
 	}
-	
+
 	data, err := json.Marshal(request)
 	if err != nil {
 		if e.config.Debug {
@@ -122,7 +124,7 @@ func (e *DefaultLogsExporter) sendBatch(entries []LogEntry) {
 		}
 		return
 	}
-	
+
 	e.sendWithRetry(data)
 }
 
@@ -130,7 +132,7 @@ func (e *DefaultLogsExporter) sendWithRetry(data []byte) {
 	url := fmt.Sprintf("%s/logs/batch", e.config.BaseURL)
 	retries := 0
 	backoff := e.config.RetryBackoff
-	
+
 	for retries <= e.config.MaxRetries {
 		req, err := http.NewRequest("POST", url, bytes.NewBuffer(data))
 		if err != nil {
@@ -139,10 +141,10 @@ func (e *DefaultLogsExporter) sendWithRetry(data []byte) {
 			}
 			return
 		}
-		
+
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+e.config.APIKey)
-		
+
 		resp, err := e.client.Do(req)
 		if err != nil {
 			if e.config.Debug {
@@ -156,9 +158,9 @@ func (e *DefaultLogsExporter) sendWithRetry(data []byte) {
 			}
 			continue
 		}
-		
+
 		resp.Body.Close()
-		
+
 		if resp.StatusCode == http.StatusOK {
 			if e.config.Debug {
 				var request LogRequest
@@ -167,11 +169,11 @@ func (e *DefaultLogsExporter) sendWithRetry(data []byte) {
 			}
 			return
 		}
-		
+
 		if e.config.Debug {
 			fmt.Printf("Failed to send logs, status: %d\n", resp.StatusCode)
 		}
-		
+
 		if resp.StatusCode >= 500 {
 			retries++
 			if retries <= e.config.MaxRetries {
@@ -183,7 +185,7 @@ func (e *DefaultLogsExporter) sendWithRetry(data []byte) {
 			break
 		}
 	}
-	
+
 	if e.config.Debug && retries > e.config.MaxRetries {
 		fmt.Printf("Max retries exceeded for log batch\n")
 	}
@@ -197,16 +199,16 @@ func (e *DefaultLogsExporter) Shutdown(ctx context.Context) error {
 	default:
 		close(e.stopCh)
 	}
-	
+
 	e.flushTicker.Stop()
 	e.flush()
-	
+
 	done := make(chan struct{})
 	go func() {
 		e.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		return nil
@@ -215,13 +217,11 @@ func (e *DefaultLogsExporter) Shutdown(ctx context.Context) error {
 	}
 }
 
-
-
 type LumberjackHandler struct {
-	exporter       LogsExporter
-	attrs          []slog.Attr
-	groups         []string
-	projectName    string
+	exporter        LogsExporter
+	attrs           []slog.Attr
+	groups          []string
+	projectName     string
 	previousHandler slog.Handler // For chaining to previous handler
 }
 
@@ -251,7 +251,7 @@ func (h *LumberjackHandler) Handle(ctx context.Context, r slog.Record) error {
 		Ts:  float64(r.Time.UnixNano()) / 1e9,
 		Src: "lumberjack-go",
 	}
-	
+
 	if r.PC != 0 {
 		fs := runtime.CallersFrames([]uintptr{r.PC})
 		f, _ := fs.Next()
@@ -260,13 +260,24 @@ func (h *LumberjackHandler) Handle(ctx context.Context, r slog.Record) error {
 			entry.Ln = f.Line
 		}
 	}
-	
+
 	props := make(map[string]interface{})
-	
+
 	for _, attr := range h.attrs {
 		props[attr.Key] = attr.Value.Any()
 	}
-	
+
+	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+		r.AddAttrs(
+			slog.String("trace_id", span.SpanContext().TraceID().String()),
+			slog.String("span_id", span.SpanContext().SpanID().String()),
+		)
+
+		if span.SpanContext().IsSampled() {
+			r.AddAttrs(slog.Bool("sampled", true))
+		}
+	}
+
 	r.Attrs(func(a slog.Attr) bool {
 		switch a.Key {
 		case "trace_id":
@@ -277,20 +288,19 @@ func (h *LumberjackHandler) Handle(ctx context.Context, r slog.Record) error {
 		}
 		return true
 	})
-	
+
 	if len(props) > 0 {
 		entry.Props = props
 	}
-	
+
 	h.exporter.Export(entry)
-	
 
 	if h.previousHandler != nil {
 
 		return h.previousHandler.Handle(ctx, r)
 
 	}
-	
+
 	return nil
 }
 
