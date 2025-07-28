@@ -42,7 +42,7 @@ func TestSlogReplace(t *testing.T) {
 	slog.SetDefault(testLogger)
 
 	// Initialize SDK with slog replacement enabled
-	config := NewConfig()
+	config := NewTestConfig()
 	config.APIKey = "test-key"
 	config.ProjectName = "test"
 	config.Debug = false
@@ -100,7 +100,7 @@ func TestSlogReplaceDisabled(t *testing.T) {
 	slog.SetDefault(testLogger)
 
 	// Initialize SDK with slog replacement disabled
-	config := NewConfig()
+	config := NewTestConfig()
 	config.APIKey = "test-key"
 	config.ProjectName = "test"
 	config.Debug = false
@@ -154,7 +154,7 @@ func TestSlogRestore(t *testing.T) {
 	handlerBeforeSDK := slog.Default().Handler()
 
 	// Initialize SDK with slog replacement enabled
-	config := NewConfig()
+	config := NewTestConfig()
 	config.APIKey = "test-key"
 	config.ProjectName = "test"
 	config.Debug = false
@@ -194,12 +194,12 @@ func TestSlogRestore(t *testing.T) {
 
 func TestConfigWithReplaceSlog(t *testing.T) {
 	t.Run("config method sets ReplaceSlog", func(t *testing.T) {
-		config := NewConfig().WithReplaceSlog(false)
+		config := NewTestConfig().WithReplaceSlog(false)
 		if config.ReplaceSlog {
 			t.Error("Expected ReplaceSlog to be false")
 		}
 
-		config = NewConfig().WithReplaceSlog(true)
+		config = NewTestConfig().WithReplaceSlog(true)
 		if !config.ReplaceSlog {
 			t.Error("Expected ReplaceSlog to be true")
 		}
@@ -208,7 +208,7 @@ func TestConfigWithReplaceSlog(t *testing.T) {
 	t.Run("environment variable sets ReplaceSlog", func(t *testing.T) {
 		// Test with environment variable (this is more of a documentation test)
 		// In real usage, LUMBERJACK_REPLACE_SLOG=false would disable it
-		config := NewConfig()
+		config := NewTestConfig()
 		// Default should be true
 		if !config.ReplaceSlog {
 			t.Error("Expected default ReplaceSlog to be true")
@@ -227,7 +227,7 @@ func TestSlogForwarding(t *testing.T) {
 	slog.SetDefault(textLogger)
 
 	// Initialize SDK with slog replacement
-	config := NewConfig()
+	config := NewTestConfig()
 	config.APIKey = "test-key" 
 	config.ProjectName = "test"
 	config.Debug = false

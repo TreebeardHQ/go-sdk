@@ -109,7 +109,7 @@ func TestParseTraceparent(t *testing.T) {
 
 func TestContextWithTraceparent(t *testing.T) {
 	// Initialize SDK for testing with proper config
-	config := NewConfig()
+	config := NewTestConfig()
 	config.APIKey = "test-key"
 	config.ProjectName = "test"
 	config.Debug = false
@@ -192,7 +192,7 @@ func TestContextWithTraceparent(t *testing.T) {
 
 func TestContextWithTraceparentPackageLevel(t *testing.T) {
 	// Initialize SDK for testing with proper config
-	config := NewConfig()
+	config := NewTestConfig()
 	config.APIKey = "test-key"
 	config.ProjectName = "test"
 	config.Debug = false

@@ -24,9 +24,12 @@ type LogEntry struct {
 	Props map[string]interface{} `json:"props,omitempty"`
 	Tid   string                 `json:"tid,omitempty"`
 	Fl    string                 `json:"fl,omitempty"`
-	Tb    string                 `json:"tb,omitempty"`
+	Tb    string                 `json:"tb,omitempty"`  // traceback/stack trace
 	Ln    int                    `json:"ln,omitempty"`
 	Src   string                 `json:"src"`
+	Sid   string                 `json:"sid,omitempty"`
+	Exv   string                 `json:"exv,omitempty"` // error value/message
+	Ext   string                 `json:"ext,omitempty"` // error type
 }
 
 type LogRequest struct {
@@ -97,27 +100,54 @@ func (e *DefaultLogsExporter) convertRecordToEntry(record *sdklog.Record) LogEnt
 		entry.Tid = record.TraceID().String()
 	}
 
-	// Convert attributes to props
+	if record.SpanID().IsValid() {
+		entry.Sid = record.SpanID().String()
+	}
+
+	// Convert attributes to props and extract special fields
 	props := make(map[string]interface{})
 	record.WalkAttributes(func(kv log.KeyValue) bool {
-		props[string(kv.Key)] = kv.Value.AsString()
+		key := string(kv.Key)
+		
+		switch key {
+		case "file":
+			entry.Fl = kv.Value.AsString()
+		case "line":
+			if lineInt, err := convertToInt(kv.Value.AsString()); err == nil {
+				entry.Ln = lineInt
+			}
+		case "stack_trace":
+			entry.Tb = kv.Value.AsString() // traceback/stack trace
+		case "error_message":
+			entry.Exv = kv.Value.AsString() // error value/message
+		case "error_type":
+			entry.Ext = kv.Value.AsString() // error type
+		case "error_cause":
+			// Keep error_cause in props as it's additional context
+			props[key] = kv.Value.AsString()
+		case "is_panic":
+			// Keep panic flag in props
+			props[key] = kv.Value.AsBool()
+		default:
+			// Handle different value types properly
+			switch kv.Value.Kind() {
+			case log.KindString:
+				props[key] = kv.Value.AsString()
+			case log.KindBool:
+				props[key] = kv.Value.AsBool()
+			case log.KindInt64:
+				props[key] = kv.Value.AsInt64()
+			case log.KindFloat64:
+				props[key] = kv.Value.AsFloat64()
+			default:
+				props[key] = kv.Value.AsString() // Fallback to string
+			}
+		}
 		return true
 	})
 
 	if len(props) > 0 {
 		entry.Props = props
-	}
-
-	// Try to extract file and line info from attributes
-	if file, ok := props["file"].(string); ok {
-		entry.Fl = file
-		delete(props, "file")
-	}
-	if line, ok := props["line"]; ok {
-		if lineInt, err := convertToInt(line); err == nil {
-			entry.Ln = lineInt
-			delete(props, "line")
-		}
 	}
 
 	return entry
@@ -328,15 +358,15 @@ func (p *LumberjackLogProcessor) ForceFlush(ctx context.Context) error {
 func CreateLumberjackSlogHandler(loggerProvider *sdklog.LoggerProvider, previousHandler slog.Handler) slog.Handler {
 	// Create an OpenTelemetry slog bridge handler
 	otelHandler := otelslog.NewHandler("lumberjack-go", otelslog.WithLoggerProvider(loggerProvider))
-	
+
 	// If there's a previous handler, we need to chain them
 	if previousHandler != nil {
 		return &chainedHandler{
-			primary:  otelHandler,
+			primary:   otelHandler,
 			secondary: previousHandler,
 		}
 	}
-	
+
 	return otelHandler
 }
 
@@ -354,12 +384,12 @@ func (h *chainedHandler) Handle(ctx context.Context, record slog.Record) error {
 	if h.primary.Enabled(ctx, record.Level) {
 		primaryErr = h.primary.Handle(ctx, record)
 	}
-	
+
 	var secondaryErr error
 	if h.secondary != nil && h.secondary.Enabled(ctx, record.Level) {
 		secondaryErr = h.secondary.Handle(ctx, record)
 	}
-	
+
 	// Return primary error if any, otherwise secondary
 	if primaryErr != nil {
 		return primaryErr
@@ -380,4 +410,3 @@ func (h *chainedHandler) WithGroup(name string) slog.Handler {
 		secondary: h.secondary.WithGroup(name),
 	}
 }
-

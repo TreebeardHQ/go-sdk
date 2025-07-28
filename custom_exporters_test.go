@@ -34,7 +34,7 @@ func TestCustomSpanExporter(t *testing.T) {
 		t.Fatalf("Failed to create trace exporter: %v", err)
 	}
 	
-	config := NewConfig().
+	config := NewTestConfig().
 		WithProjectName("test-project").
 		WithCustomSpanExporter(traceExporter)
 		
@@ -58,7 +58,7 @@ func TestCustomMetricsExporter(t *testing.T) {
 		t.Fatalf("Failed to create metric exporter: %v", err)
 	}
 	
-	config := NewConfig().
+	config := NewTestConfig().
 		WithProjectName("test-project").
 		WithCustomMetricsExporter(metricExporter)
 		
@@ -82,7 +82,7 @@ func TestCustomLogsExporter(t *testing.T) {
 	// Create our custom console logs exporter
 	logsExporter := &ConsoleLogsExporter{}
 	
-	config := NewConfig().
+	config := NewTestConfig().
 		WithProjectName("test-project").
 		WithCustomLogsExporter(logsExporter).
 		WithCaptureStdLog(true)
@@ -111,7 +111,7 @@ func TestAllCustomExporters(t *testing.T) {
 	
 	logsExporter := &ConsoleLogsExporter{}
 	
-	config := NewConfig().
+	config := NewTestConfig().
 		WithProjectName("test-project").
 		WithCustomSpanExporter(traceExporter).
 		WithCustomMetricsExporter(metricExporter).

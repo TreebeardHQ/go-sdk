@@ -131,8 +131,12 @@ func newSDK(config *Config) *SDK {
 
 	var handler slog.Handler
 	if config.ReplaceSlog {
-		// Create the OpenTelemetry slog bridge handler
-		handler = CreateLumberjackSlogHandler(loggerProvider, base)
+		// Capture the current default handler before replacing it
+		previousHandler := slog.Default().Handler()
+		config.PreviousSlogHandler = previousHandler
+		
+		// Create the OpenTelemetry slog bridge handler with chaining
+		handler = CreateLumberjackSlogHandler(loggerProvider, previousHandler)
 		slog.SetDefault(slog.New(handler))
 
 		if config.CaptureStdLog {
@@ -142,7 +146,7 @@ func newSDK(config *Config) *SDK {
 		}
 	} else {
 		// Create handler but don't set as default
-		handler = CreateLumberjackSlogHandler(loggerProvider, base)
+		handler = CreateLumberjackSlogHandler(loggerProvider, nil)
 	}
 		
 	logger := NewLogger(handler)
