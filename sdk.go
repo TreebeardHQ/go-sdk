@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -131,31 +132,18 @@ func newSDK(config *Config) *SDK {
 	if config.ReplaceSlog {
 		// Capture the current default handler before replacing it
 		previousHandler := slog.Default().Handler()
-		nonDefaultPreviousHandlerExists := false
+
 		
-		if _, ok := previousHandler.(*slog.TextHandler); ok {
-			config.PreviousSlogHandler = slog.NewTextHandler(os.Stderr, nil)
-		} else if _, ok := previousHandler.(*slog.JSONHandler); ok {
-			config.PreviousSlogHandler = slog.NewJSONHandler(os.Stderr, nil)
-		} else if previousHandler != nil {
-			fmt.Println("Warning: Lumberjack SDK attempted to initialize with a custom slog handler. Lumberjack will not collect slogs by default despite ReplaceSlog being true. To remove this warning either set ReplaceSlog to false. To also send slogs to Lumberjack, use a a package like multi-slog.")
-			config.PreviousSlogHandler = nil
-			nonDefaultPreviousHandlerExists = true
-		}
-
-
-		if !nonDefaultPreviousHandlerExists {
-			// Create the OpenTelemetry slog bridge handler with chaining
+		if isBuiltinSlogHandler(previousHandler) {
+			config.PreviousSlogHandler = previousHandler
 			handler = CreateLumberjackSlogHandler(loggerProvider, config.PreviousSlogHandler)
 			slog.SetDefault(slog.New(handler))
-
-			// if config.CaptureStdLog && config.PreviousSlogHandler != nil {
-			// 	base := baselineHandler() // <-- CLEAN handler, never Lumberjack
-			// 	// std logger -> baseline (so it never re-enters Lumberjack)
-			// 	log.SetFlags(0)
-			// 	log.SetOutput(slog.NewLogLogger(base, slog.LevelInfo).Writer())
-			// }
+		} else  {
+			fmt.Println("Warning: Lumberjack SDK attempted to initialize with a custom slog handler. Lumberjack will not collect slogs by default despite ReplaceSlog being true. To remove this warning either set ReplaceSlog to false. To also send slogs to Lumberjack, use a a package like multi-slog.")
+			config.PreviousSlogHandler = nil
 		}
+
+
 	} 
 	
 	if handler == nil {
@@ -404,4 +392,14 @@ func baselineHandler() slog.Handler {
 // This is a package-level convenience function.
 func ContextWithTraceparent(ctx context.Context, traceparent string) (context.Context, error) {
 	return Get().ContextWithTraceparent(ctx, traceparent)
+}
+
+func isBuiltinSlogHandler(h slog.Handler) bool {
+	t := reflect.TypeOf(h)
+	switch t.String() {
+	case "*slog.TextHandler", "*slog.JSONHandler":
+		return true
+	default:
+		return false
+	}
 }

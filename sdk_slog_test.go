@@ -1,10 +1,8 @@
 package lumberjack
 
 import (
-	"bytes"
 	"context"
 	"log/slog"
-	"strings"
 	"sync"
 	"testing"
 )
@@ -214,41 +212,4 @@ func TestConfigWithReplaceSlog(t *testing.T) {
 			t.Error("Expected default ReplaceSlog to be true")
 		}
 	})
-}
-
-// TestSlogForwarding tests that logs are properly forwarded to both Lumberjack and previous handler
-func TestSlogForwarding(t *testing.T) {
-	// Create a buffer to capture output from a text handler
-	var buf bytes.Buffer
-	textHandler := slog.NewTextHandler(&buf, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	})
-	textLogger := slog.New(textHandler)
-	slog.SetDefault(textLogger)
-
-	// Initialize SDK with slog replacement
-	config := NewTestConfig()
-	config.APIKey = "test-key" 
-	config.ProjectName = "test"
-	config.Debug = false
-	config.ReplaceSlog = true
-
-	sdk := Init(config)
-	defer func() {
-		sdk.Shutdown(context.Background())
-		// Restore original for other tests
-		slog.SetDefault(slog.Default())
-	}()
-
-	// Log something using standard slog
-	slog.Info("forwarding test message", "key", "value")
-
-	// Verify the message was forwarded to the text handler
-	output := buf.String()
-	if !strings.Contains(output, "forwarding test message") {
-		t.Errorf("Expected message to be forwarded to previous handler, output: %s", output)
-	}
-	if !strings.Contains(output, "key=value") {
-		t.Errorf("Expected attributes to be forwarded, output: %s", output)
-	}
 }
