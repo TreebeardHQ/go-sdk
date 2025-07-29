@@ -265,13 +265,45 @@ The SDK supports custom OpenTelemetry exporters for logs, spans, and metrics:
 
 ### Custom Logs Exporter
 
+The SDK uses OpenTelemetry's log SDK for processing. To create a custom logs exporter, implement the `LogsExporter` interface:
+
 ```go
+import (
+    "context"
+    "fmt"
+    "github.com/TreebeardHQ/go-sdk"
+    "go.opentelemetry.io/otel/log"
+    sdklog "go.opentelemetry.io/otel/sdk/log"
+)
+
 // Implement the LogsExporter interface
 type CustomLogsExporter struct{}
 
-func (e *CustomLogsExporter) Export(entry lumberjack.LogEntry) {
-    // Send logs to your custom destination
-    fmt.Printf("[CUSTOM] %s: %s\n", entry.Lvl, entry.Msg)
+func (e *CustomLogsExporter) Export(ctx context.Context, records []*sdklog.Record) error {
+    // Process OpenTelemetry log records
+    for _, record := range records {
+        // Access log data
+        body := record.Body().String()
+        severity := record.Severity()
+        timestamp := record.Timestamp()
+        
+        // Access attributes
+        var attrs []string
+        record.WalkAttributes(func(kv log.KeyValue) bool {
+            attrs = append(attrs, fmt.Sprintf("%s=%v", kv.Key, kv.Value.AsInterface()))
+            return true
+        })
+        
+        // Access trace context if available
+        if record.TraceID().IsValid() {
+            fmt.Printf("[CUSTOM] TraceID: %s, SpanID: %s\n", 
+                record.TraceID(), record.SpanID())
+        }
+        
+        // Send to your custom destination
+        fmt.Printf("[CUSTOM] %s: %s (attrs: %v)\n", severity, body, attrs)
+    }
+    return nil
 }
 
 func (e *CustomLogsExporter) Shutdown(ctx context.Context) error {
@@ -317,7 +349,7 @@ func main() {
 
 - **Spans**: Any `sdktrace.SpanExporter` (Jaeger, OTLP, stdout, etc.)
 - **Metrics**: Any `sdkmetric.Exporter` (Prometheus, OTLP, stdout, etc.)  
-- **Logs**: Custom `LogsExporter` interface for flexible log handling
+- **Logs**: Implement `LogsExporter` interface that accepts OpenTelemetry `*sdklog.Record`
 
 ## Example: HTTP Server
 

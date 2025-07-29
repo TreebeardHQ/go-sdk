@@ -3,7 +3,6 @@ package lumberjack
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"strings"
@@ -127,24 +126,39 @@ func newSDK(config *Config) *SDK {
 		sdklog.WithProcessor(logProcessor),
 	)
 
-	base := baselineHandler() // <-- CLEAN handler, never Lumberjack
 
 	var handler slog.Handler
 	if config.ReplaceSlog {
 		// Capture the current default handler before replacing it
 		previousHandler := slog.Default().Handler()
-		config.PreviousSlogHandler = previousHandler
+		nonDefaultPreviousHandlerExists := false
 		
-		// Create the OpenTelemetry slog bridge handler with chaining
-		handler = CreateLumberjackSlogHandler(loggerProvider, previousHandler)
-		slog.SetDefault(slog.New(handler))
-
-		if config.CaptureStdLog {
-			// std logger -> baseline (so it never re-enters Lumberjack)
-			log.SetFlags(0)
-			log.SetOutput(slog.NewLogLogger(base, slog.LevelInfo).Writer())
+		if _, ok := previousHandler.(*slog.TextHandler); ok {
+			config.PreviousSlogHandler = slog.NewTextHandler(os.Stderr, nil)
+		} else if _, ok := previousHandler.(*slog.JSONHandler); ok {
+			config.PreviousSlogHandler = slog.NewJSONHandler(os.Stderr, nil)
+		} else if previousHandler != nil {
+			fmt.Println("Warning: Lumberjack SDK attempted to initialize with a custom slog handler. Lumberjack will not collect slogs by default despite ReplaceSlog being true. To remove this warning either set ReplaceSlog to false. To also send slogs to Lumberjack, use a a package like multi-slog.")
+			config.PreviousSlogHandler = nil
+			nonDefaultPreviousHandlerExists = true
 		}
-	} else {
+
+
+		if !nonDefaultPreviousHandlerExists {
+			// Create the OpenTelemetry slog bridge handler with chaining
+			handler = CreateLumberjackSlogHandler(loggerProvider, config.PreviousSlogHandler)
+			slog.SetDefault(slog.New(handler))
+
+			// if config.CaptureStdLog && config.PreviousSlogHandler != nil {
+			// 	base := baselineHandler() // <-- CLEAN handler, never Lumberjack
+			// 	// std logger -> baseline (so it never re-enters Lumberjack)
+			// 	log.SetFlags(0)
+			// 	log.SetOutput(slog.NewLogLogger(base, slog.LevelInfo).Writer())
+			// }
+		}
+	} 
+	
+	if handler == nil {
 		// Create handler but don't set as default
 		handler = CreateLumberjackSlogHandler(loggerProvider, nil)
 	}
