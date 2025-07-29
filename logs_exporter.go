@@ -380,21 +380,18 @@ func (h *chainedHandler) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (h *chainedHandler) Handle(ctx context.Context, record slog.Record) error {
-	var primaryErr error
+	var err error
 	if h.primary.Enabled(ctx, record.Level) {
-		primaryErr = h.primary.Handle(ctx, record)
-	}
-
-	var secondaryErr error
-	if h.secondary != nil && h.secondary.Enabled(ctx, record.Level) {
-		secondaryErr = h.secondary.Handle(ctx, record)
+		err = h.primary.Handle(ctx, record)
+	} else if h.secondary != nil && h.secondary.Enabled(ctx, record.Level) {
+		err = h.secondary.Handle(ctx, record)
 	}
 
 	// Return primary error if any, otherwise secondary
-	if primaryErr != nil {
-		return primaryErr
+	if err != nil {
+		return err
 	}
-	return secondaryErr
+	return nil
 }
 
 func (h *chainedHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
