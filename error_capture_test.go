@@ -39,7 +39,7 @@ func TestErrorCapture(t *testing.T) {
 	config.APIKey = "test-key"
 	config.ProjectName = "test"
 	config.CustomLogsExporter = testExporter
-	config.ReplaceSlog = false // Don't replace slog to avoid circular logging
+	config.DisableSlogOverride = true // Don't replace slog to avoid circular logging
 	
 	sdk := newSDK(config) // Use newSDK to avoid singleton issues
 	defer sdk.Shutdown(context.Background())

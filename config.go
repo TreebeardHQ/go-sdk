@@ -30,9 +30,12 @@ type Config struct {
 	RetryBackoff  time.Duration
 	
 	// slog integration
-	ReplaceSlog         bool
+	DisableSlogOverride bool
 	PreviousSlogHandler slog.Handler
 	CaptureStdLog       bool // NEW – redirect log.Printf etc. to slog
+	
+	// Local server settings
+	LocalServerEnabled bool
 	
 	// Custom exporters - if provided, these will be used instead of the default ones
 	CustomSpanExporter    sdktrace.SpanExporter
@@ -55,21 +58,27 @@ func NewConfig() *Config {
 		}
 	}
 	
-	replaceSlog := true
-	if replaceSlogStr := os.Getenv("LUMBERJACK_REPLACE_SLOG"); replaceSlogStr != "" {
-		replaceSlog, _ = strconv.ParseBool(replaceSlogStr)
+	disableSlogOverride := false
+	if disableStr := os.Getenv("LUMBERJACK_DISABLE_SLOG_OVERRIDE"); disableStr != "" {
+		disableSlogOverride, _ = strconv.ParseBool(disableStr)
+	}
+	
+	localServerEnabled := false
+	if localServerStr := os.Getenv("LUMBERJACK_LOCAL_SERVER_ENABLED"); localServerStr != "" {
+		localServerEnabled, _ = strconv.ParseBool(localServerStr)
 	}
 
 	return &Config{
-		APIKey:       os.Getenv("LUMBERJACK_API_KEY"),
-		BaseURL:      getEnvOrDefault("LUMBERJACK_BASE_URL", "https://api.trylumberjack.com"),
-		Debug:        debug,
-		ProjectName:  os.Getenv("LUMBERJACK_PROJECT_NAME"),
-		BatchSize:    batchSize,
-		BatchTimeout: 5 * time.Second,
-		MaxRetries:   3,
-		RetryBackoff: 250 * time.Millisecond,
-		ReplaceSlog:  replaceSlog,
+		APIKey:              os.Getenv("LUMBERJACK_API_KEY"),
+		BaseURL:             getEnvOrDefault("LUMBERJACK_BASE_URL", "https://api.trylumberjack.com"),
+		Debug:               debug,
+		ProjectName:         os.Getenv("LUMBERJACK_PROJECT_NAME"),
+		BatchSize:           batchSize,
+		BatchTimeout:        5 * time.Second,
+		MaxRetries:          3,
+		RetryBackoff:        250 * time.Millisecond,
+		DisableSlogOverride: disableSlogOverride,
+		LocalServerEnabled:  localServerEnabled,
 	}
 }
 
@@ -108,13 +117,18 @@ func (c *Config) WithCustomLogsExporter(exporter LogsExporter) *Config {
 	return c
 }
 
-func (c *Config) WithReplaceSlog(replace bool) *Config {
-	c.ReplaceSlog = replace
+func (c *Config) WithDisableSlogOverride(disable bool) *Config {
+	c.DisableSlogOverride = disable
 	return c
 }
 
 func (c *Config) WithCaptureStdLog(capture bool) *Config {
 	c.CaptureStdLog = capture
+	return c
+}
+
+func (c *Config) WithLocalServerEnabled(enabled bool) *Config {
+	c.LocalServerEnabled = enabled
 	return c
 }
 

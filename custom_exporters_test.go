@@ -116,7 +116,7 @@ func TestAllCustomExporters(t *testing.T) {
 		WithCustomSpanExporter(traceExporter).
 		WithCustomMetricsExporter(metricExporter).
 		WithCustomLogsExporter(logsExporter).
-		WithReplaceSlog(false)
+		WithDisableSlogOverride(true)
 		
 	sdk := newSDK(config)
 	defer sdk.Shutdown(context.Background())

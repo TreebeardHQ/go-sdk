@@ -30,9 +30,16 @@ func (h *TestSlogHandler) WithGroup(name string) slog.Handler {
 }
 
 func TestSlogReplace(t *testing.T) {
-	// Save original default handler
+	// Save original default handler and reset global SDK
 	originalDefault := slog.Default()
-	defer slog.SetDefault(originalDefault)
+	originalGlobalSDK := globalSDK
+	globalSDK = nil
+	once = sync.Once{}
+	defer func() {
+		slog.SetDefault(originalDefault)
+		globalSDK = originalGlobalSDK
+		once = sync.Once{}
+	}()
 
 	// Create a test handler to verify forwarding
 	testHandler := &TestSlogHandler{}
@@ -44,9 +51,9 @@ func TestSlogReplace(t *testing.T) {
 	config.APIKey = "test-key"
 	config.ProjectName = "test"
 	config.Debug = false
-	config.ReplaceSlog = true
+	config.DisableSlogOverride = false
 
-	sdk := Init(config)
+	sdk := newSDK(config) // Use newSDK directly to avoid singleton issues
 	defer sdk.Shutdown(context.Background())
 
 	t.Run("standard slog calls go through Lumberjack", func(t *testing.T) {
@@ -88,9 +95,16 @@ func TestSlogReplace(t *testing.T) {
 }
 
 func TestSlogReplaceDisabled(t *testing.T) {
-	// Save original default handler
+	// Save original default handler and reset global SDK
 	originalDefault := slog.Default()
-	defer slog.SetDefault(originalDefault)
+	originalGlobalSDK := globalSDK
+	globalSDK = nil
+	once = sync.Once{}
+	defer func() {
+		slog.SetDefault(originalDefault)
+		globalSDK = originalGlobalSDK
+		once = sync.Once{}
+	}()
 
 	// Create a test handler
 	testHandler := &TestSlogHandler{}
@@ -102,9 +116,9 @@ func TestSlogReplaceDisabled(t *testing.T) {
 	config.APIKey = "test-key"
 	config.ProjectName = "test"
 	config.Debug = false
-	config.ReplaceSlog = false
+	config.DisableSlogOverride = true
 
-	sdk := Init(config)
+	sdk := newSDK(config) // Use newSDK directly to avoid singleton issues
 	defer sdk.Shutdown(context.Background())
 
 	t.Run("standard slog calls do not go through Lumberjack", func(t *testing.T) {
@@ -126,7 +140,7 @@ func TestSlogReplaceDisabled(t *testing.T) {
 		// Verify the global handler wasn't changed
 		currentDefault := slog.Default()
 		if currentDefault.Handler() != testHandler {
-			t.Error("Global slog handler should not have been replaced when ReplaceSlog is false")
+			t.Error("Global slog handler should not have been replaced when DisableSlogOverride is true")
 		}
 	})
 }
@@ -156,7 +170,7 @@ func TestSlogRestore(t *testing.T) {
 	config.APIKey = "test-key"
 	config.ProjectName = "test"
 	config.Debug = false
-	config.ReplaceSlog = true
+	config.DisableSlogOverride = false
 
 	sdk := newSDK(config) // Use newSDK directly to avoid singleton issues
 
@@ -190,26 +204,26 @@ func TestSlogRestore(t *testing.T) {
 	}
 }
 
-func TestConfigWithReplaceSlog(t *testing.T) {
-	t.Run("config method sets ReplaceSlog", func(t *testing.T) {
-		config := NewTestConfig().WithReplaceSlog(false)
-		if config.ReplaceSlog {
-			t.Error("Expected ReplaceSlog to be false")
+func TestConfigWithDisableSlogOverride(t *testing.T) {
+	t.Run("config method sets DisableSlogOverride", func(t *testing.T) {
+		config := NewTestConfig().WithDisableSlogOverride(true)
+		if !config.DisableSlogOverride {
+			t.Error("Expected DisableSlogOverride to be true")
 		}
 
-		config = NewTestConfig().WithReplaceSlog(true)
-		if !config.ReplaceSlog {
-			t.Error("Expected ReplaceSlog to be true")
+		config = NewTestConfig().WithDisableSlogOverride(false)
+		if config.DisableSlogOverride {
+			t.Error("Expected DisableSlogOverride to be false")
 		}
 	})
 
-	t.Run("environment variable sets ReplaceSlog", func(t *testing.T) {
+	t.Run("environment variable sets DisableSlogOverride", func(t *testing.T) {
 		// Test with environment variable (this is more of a documentation test)
-		// In real usage, LUMBERJACK_REPLACE_SLOG=false would disable it
+		// In real usage, LUMBERJACK_DISABLE_SLOG_OVERRIDE=true would disable it
 		config := NewTestConfig()
-		// Default should be true
-		if !config.ReplaceSlog {
-			t.Error("Expected default ReplaceSlog to be true")
+		// Default should be false (slog override enabled)
+		if config.DisableSlogOverride {
+			t.Error("Expected default DisableSlogOverride to be false")
 		}
 	})
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -122,28 +121,39 @@ func newSDK(config *Config) *SDK {
 	
 	// Create OpenTelemetry log provider with our exporter
 	logProcessor := NewLumberjackLogProcessor(logsExporter)
-	loggerProvider := sdklog.NewLoggerProvider(
+	
+	// Prepare processors list
+	processors := []sdklog.LoggerProviderOption{
 		sdklog.WithResource(res),
 		sdklog.WithProcessor(logProcessor),
-	)
+	}
+	
+	// Add local server exporter if enabled
+	if config.LocalServerEnabled {
+		serviceName := config.ProjectName
+		if serviceName == "" {
+			serviceName = "default"
+		}
+		
+		localExporter := NewLocalServerExporter(serviceName, 200, 30*time.Second)
+		localProcessor := NewLumberjackLogProcessor(localExporter)
+		processors = append(processors, sdklog.WithProcessor(localProcessor))
+		
+		if config.Debug {
+			fmt.Printf("Local server exporter enabled for service: %s\n", serviceName)
+		}
+	}
+	
+	loggerProvider := sdklog.NewLoggerProvider(processors...)
 
 
 	var handler slog.Handler
-	if config.ReplaceSlog {
+	if !config.DisableSlogOverride {
 		// Capture the current default handler before replacing it
 		previousHandler := slog.Default().Handler()
-
-		
-		if isBuiltinSlogHandler(previousHandler) {
-			config.PreviousSlogHandler = previousHandler
-			handler = CreateLumberjackSlogHandler(loggerProvider, config.PreviousSlogHandler)
-			slog.SetDefault(slog.New(handler))
-		} else  {
-			fmt.Println("Warning: Lumberjack SDK attempted to initialize with a custom slog handler. Lumberjack will not collect slogs by default despite ReplaceSlog being true. To remove this warning either set ReplaceSlog to false. To also send slogs to Lumberjack, use a a package like multi-slog.")
-			config.PreviousSlogHandler = nil
-		}
-
-
+		config.PreviousSlogHandler = previousHandler
+		handler = CreateLumberjackSlogHandler(loggerProvider, config.PreviousSlogHandler)
+		slog.SetDefault(slog.New(handler))
 	} 
 	
 	if handler == nil {
@@ -263,7 +273,7 @@ func (s *SDK) Shutdown(ctx context.Context) error {
 	var errs []error
 	
 	// Restore previous slog handler if we replaced it
-	if s.config.ReplaceSlog && s.config.PreviousSlogHandler != nil {
+	if !s.config.DisableSlogOverride && s.config.PreviousSlogHandler != nil {
 		restoredLogger := slog.New(s.config.PreviousSlogHandler)
 		slog.SetDefault(restoredLogger)
 		
@@ -392,14 +402,4 @@ func baselineHandler() slog.Handler {
 // This is a package-level convenience function.
 func ContextWithTraceparent(ctx context.Context, traceparent string) (context.Context, error) {
 	return Get().ContextWithTraceparent(ctx, traceparent)
-}
-
-func isBuiltinSlogHandler(h slog.Handler) bool {
-	t := reflect.TypeOf(h)
-	switch t.String() {
-	case "*slog.TextHandler", "*slog.JSONHandler":
-		return true
-	default:
-		return false
-	}
 }
