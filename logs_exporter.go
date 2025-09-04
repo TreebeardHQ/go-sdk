@@ -67,11 +67,11 @@ func NewLogsExporter(config *Config) *DefaultLogsExporter {
 	return exporter
 }
 
-func (e *DefaultLogsExporter) Export(ctx context.Context, records []*sdklog.Record) error {
+func (e *DefaultLogsExporter) Export(ctx context.Context, records []sdklog.Record) error {
 	// Convert Record to LogEntry
 	entries := make([]LogEntry, 0, len(records))
 	for _, record := range records {
-		entry := e.convertRecordToEntry(record)
+		entry := e.convertRecordToEntry(&record)
 		entries = append(entries, entry)
 	}
 
@@ -330,6 +330,11 @@ func (e *DefaultLogsExporter) Shutdown(ctx context.Context) error {
 	}
 }
 
+func (e *DefaultLogsExporter) ForceFlush(ctx context.Context) error {
+	e.flush()
+	return nil
+}
+
 // LumberjackLogProcessor is an OpenTelemetry log processor that exports to our LogsExporter
 type LumberjackLogProcessor struct {
 	exporter LogsExporter
@@ -342,7 +347,7 @@ func NewLumberjackLogProcessor(exporter LogsExporter) *LumberjackLogProcessor {
 }
 
 func (p *LumberjackLogProcessor) OnEmit(ctx context.Context, record *sdklog.Record) error {
-	return p.exporter.Export(ctx, []*sdklog.Record{record})
+	return p.exporter.Export(ctx, []sdklog.Record{*record})
 }
 
 func (p *LumberjackLogProcessor) Shutdown(ctx context.Context) error {
@@ -350,65 +355,14 @@ func (p *LumberjackLogProcessor) Shutdown(ctx context.Context) error {
 }
 
 func (p *LumberjackLogProcessor) ForceFlush(ctx context.Context) error {
-	// If the exporter supports force flush, call it here
-	return nil
+	return p.exporter.ForceFlush(ctx)
 }
 
 // CreateLumberjackSlogHandler creates a slog handler that uses OpenTelemetry logging
 func CreateLumberjackSlogHandler(loggerProvider *sdklog.LoggerProvider, previousHandler slog.Handler) slog.Handler {
-	// Create an OpenTelemetry slog bridge handler
-	otelHandler := otelslog.NewHandler("lumberjack-go", otelslog.WithLoggerProvider(loggerProvider))
-
-	// If there's a previous handler, we need to chain them
-	if previousHandler != nil {
-		return &chainedHandler{
-			primary:   otelHandler,
-			secondary: previousHandler,
-		}
-	}
-
-	return otelHandler
+	// Create an OpenTelemetry slog bridge handler with source location tracking
+	return otelslog.NewHandler("lumberjack-go", 
+		otelslog.WithLoggerProvider(loggerProvider),
+		otelslog.WithSource(true))
 }
 
-type chainedHandler struct {
-	primary   slog.Handler
-	secondary slog.Handler
-}
-
-func (h *chainedHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	return h.primary.Enabled(ctx, level) || h.secondary.Enabled(ctx, level)
-}
-
-func (h *chainedHandler) Handle(ctx context.Context, record slog.Record) error {
-	var primaryErr, secondaryErr error
-	
-	// Always call primary handler if enabled
-	if h.primary.Enabled(ctx, record.Level) {
-		primaryErr = h.primary.Handle(ctx, record)
-	}
-	
-	// Also call secondary handler if enabled
-	if h.secondary != nil && h.secondary.Enabled(ctx, record.Level) {
-		secondaryErr = h.secondary.Handle(ctx, record)
-	}
-
-	// Return primary error if any, otherwise secondary
-	if primaryErr != nil {
-		return primaryErr
-	}
-	return secondaryErr
-}
-
-func (h *chainedHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &chainedHandler{
-		primary:   h.primary.WithAttrs(attrs),
-		secondary: h.secondary.WithAttrs(attrs),
-	}
-}
-
-func (h *chainedHandler) WithGroup(name string) slog.Handler {
-	return &chainedHandler{
-		primary:   h.primary.WithGroup(name),
-		secondary: h.secondary.WithGroup(name),
-	}
-}

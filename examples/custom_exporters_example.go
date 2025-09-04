@@ -14,7 +14,7 @@ import (
 // CustomConsoleLogsExporter implements the LogsExporter interface
 type CustomConsoleLogsExporter struct{}
 
-func (e *CustomConsoleLogsExporter) Export(ctx context.Context, records []*sdklog.Record) error {
+func (e *CustomConsoleLogsExporter) Export(ctx context.Context, records []sdklog.Record) error {
 	for _, record := range records {
 		log.Printf("[CUSTOM LOG] %s: %s", record.SeverityText(), record.Body().String())
 	}
@@ -23,6 +23,10 @@ func (e *CustomConsoleLogsExporter) Export(ctx context.Context, records []*sdklo
 
 func (e *CustomConsoleLogsExporter) Shutdown(ctx context.Context) error {
 	log.Println("Custom logs exporter shut down")
+	return nil
+}
+
+func (e *CustomConsoleLogsExporter) ForceFlush(ctx context.Context) error {
 	return nil
 }
 

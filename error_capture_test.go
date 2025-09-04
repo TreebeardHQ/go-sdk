@@ -16,17 +16,21 @@ type TestLogsExporter struct {
 	logs []LogEntry
 }
 
-func (e *TestLogsExporter) Export(ctx context.Context, records []*sdklog.Record) error {
+func (e *TestLogsExporter) Export(ctx context.Context, records []sdklog.Record) error {
 	// Convert records to log entries using the same logic as DefaultLogsExporter
 	exporter := &DefaultLogsExporter{config: NewTestConfig()}
 	for _, record := range records {
-		entry := exporter.convertRecordToEntry(record)
+		entry := exporter.convertRecordToEntry(&record)
 		e.logs = append(e.logs, entry)
 	}
 	return nil
 }
 
 func (e *TestLogsExporter) Shutdown(ctx context.Context) error {
+	return nil
+}
+
+func (e *TestLogsExporter) ForceFlush(ctx context.Context) error {
 	return nil
 }
 

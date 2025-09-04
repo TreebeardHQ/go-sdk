@@ -136,7 +136,7 @@ func newSDK(config *Config) *SDK {
 		}
 		
 		localExporter := NewLocalServerExporter(serviceName, 200, 30*time.Second)
-		localProcessor := NewLumberjackLogProcessor(localExporter)
+		localProcessor := sdklog.NewSimpleProcessor(localExporter)
 		processors = append(processors, sdklog.WithProcessor(localProcessor))
 		
 		if config.Debug {

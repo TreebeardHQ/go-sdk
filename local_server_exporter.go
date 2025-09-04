@@ -21,7 +21,7 @@ type LocalServerExporter struct {
 	serverAvailable bool
 	
 	// Log caching with FIFO eviction
-	logCache        []*sdklog.Record
+	logCache        []sdklog.Record
 	cacheMutex      sync.Mutex
 	
 	// Background discovery
@@ -55,7 +55,7 @@ func NewLocalServerExporter(serviceName string, cacheMaxSize int, discoveryInter
 		serviceName:       serviceName,
 		cacheMaxSize:      cacheMaxSize,
 		discoveryInterval: discoveryInterval,
-		logCache:          make([]*sdklog.Record, 0, cacheMaxSize),
+		logCache:          make([]sdklog.Record, 0, cacheMaxSize),
 		stopDiscovery:     make(chan struct{}),
 	}
 	
@@ -69,7 +69,7 @@ func NewLocalServerExporter(serviceName string, cacheMaxSize int, discoveryInter
 }
 
 // Export exports log records to the local server or caches them
-func (e *LocalServerExporter) Export(ctx context.Context, records []*sdklog.Record) error {
+func (e *LocalServerExporter) Export(ctx context.Context, records []sdklog.Record) error {
 	// Try to discover server if not available
 	if !e.serverAvailable {
 		e.tryDiscoverServer()
@@ -77,15 +77,7 @@ func (e *LocalServerExporter) Export(ctx context.Context, records []*sdklog.Reco
 	
 	// Try to export if server is available
 	if e.serverAvailable && e.otlpExporter != nil {
-		// Convert []*Record to []Record for OTLP exporter
-		convertedRecords := make([]sdklog.Record, len(records))
-		for i, record := range records {
-			if record != nil {
-				convertedRecords[i] = *record
-			}
-		}
-		
-		err := e.otlpExporter.Export(ctx, convertedRecords)
+		err := e.otlpExporter.Export(ctx, records)
 		if err == nil {
 			// Successful export, try to flush cache
 			e.flushCache(ctx)
@@ -198,7 +190,7 @@ func (e *LocalServerExporter) markServerUnavailable() {
 }
 
 // cacheLogs adds logs to the local cache with FIFO eviction
-func (e *LocalServerExporter) cacheLogs(records []*sdklog.Record) {
+func (e *LocalServerExporter) cacheLogs(records []sdklog.Record) {
 	e.cacheMutex.Lock()
 	defer e.cacheMutex.Unlock()
 	
@@ -225,7 +217,7 @@ func (e *LocalServerExporter) flushCache(ctx context.Context) {
 	}
 	
 	// Copy cache for export
-	cachedRecords := make([]*sdklog.Record, len(e.logCache))
+	cachedRecords := make([]sdklog.Record, len(e.logCache))
 	copy(cachedRecords, e.logCache)
 	cacheSize := len(e.logCache)
 	
@@ -233,15 +225,7 @@ func (e *LocalServerExporter) flushCache(ctx context.Context) {
 	
 	// Try to export cached records
 	if e.otlpExporter != nil {
-		// Convert []*Record to []Record for OTLP exporter
-		convertedRecords := make([]sdklog.Record, len(cachedRecords))
-		for i, record := range cachedRecords {
-			if record != nil {
-				convertedRecords[i] = *record
-			}
-		}
-		
-		err := e.otlpExporter.Export(ctx, convertedRecords)
+		err := e.otlpExporter.Export(ctx, cachedRecords)
 		if err == nil {
 			// Successful flush, clear cache
 			e.cacheMutex.Lock()

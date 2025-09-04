@@ -15,7 +15,7 @@ import (
 // ConsoleLogsExporter is a simple console exporter for logs that implements LogsExporter interface
 type ConsoleLogsExporter struct{}
 
-func (e *ConsoleLogsExporter) Export(ctx context.Context, records []*sdklog.Record) error {
+func (e *ConsoleLogsExporter) Export(ctx context.Context, records []sdklog.Record) error {
 	for _, record := range records {
 		// Use fmt.Fprintf to stderr to avoid any logging loops
 		fmt.Fprintf(os.Stderr, "CONSOLE LOG: %s %s\n", record.SeverityText(), record.Body().String())
@@ -24,6 +24,10 @@ func (e *ConsoleLogsExporter) Export(ctx context.Context, records []*sdklog.Reco
 }
 
 func (e *ConsoleLogsExporter) Shutdown(ctx context.Context) error {
+	return nil
+}
+
+func (e *ConsoleLogsExporter) ForceFlush(ctx context.Context) error {
 	return nil
 }
 

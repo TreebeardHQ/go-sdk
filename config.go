@@ -1,7 +1,6 @@
 package lumberjack
 
 import (
-	"context"
 	"log/slog"
 	"os"
 	"strconv"
@@ -12,11 +11,9 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-// LogsExporter defines the interface for custom logs exporters
-type LogsExporter interface {
-	Export(ctx context.Context, records []*sdklog.Record) error
-	Shutdown(ctx context.Context) error
-}
+// LogsExporter is an alias for the OpenTelemetry log exporter interface
+type LogsExporter = sdklog.Exporter
+
 
 type Config struct {
 	APIKey      string
